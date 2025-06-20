@@ -171,22 +171,27 @@ class HapticRenderer:
         """
         유리 재질 파형 생성 - 맑고 날카로우며 배음이 많은 소리
         특징: 높은 배음, 빠른 어택, 긴 서스테인, 날카로운 특성
+        
+        개선: 지직거림 완전 제거, 매우 부드러운 질감
         """
         n_s = int(self.sample_rate * (ms / 1000.0))
         t = np.linspace(0, ms / 1000.0, n_s, False)
         
         # 기본파 + 매우 부드러운 배음들 (지직거림 완전 제거)
-        fundamental = amp * 0.9 * np.sin(2 * np.pi * hz * t)
-        harmonic2 = amp * 0.15 * brightness * 0.3 * np.sin(2 * np.pi * hz * 2 * t)
-        harmonic3 = amp * 0.05 * brightness * 0.2 * np.sin(2 * np.pi * hz * 3 * t)
-        # 고배음 완전 제거로 깔끔한 소리
+        fundamental = amp * 0.85 * np.sin(2 * np.pi * hz * t)
+        harmonic2 = amp * 0.08 * brightness * 0.2 * np.sin(2 * np.pi * hz * 2 * t)
+        harmonic3 = amp * 0.03 * brightness * 0.1 * np.sin(2 * np.pi * hz * 3 * t)
         
-        # 고주파 노이즈를 거의 제거 (지직거림 방지)
-        high_freq_noise = amp * 0.002 * np.random.normal(0, 1, n_s)  # 노이즈 크게 감소
-        # 강한 스무딩으로 부드럽게
-        high_freq_noise = np.convolve(high_freq_noise, np.ones(50)/50, mode='same')
+        # 극미량의 매우 부드러운 고주파 질감 (유리 특성)
+        subtle_texture = amp * 0.001 * np.sin(2 * np.pi * hz * 8 * t) * (1 + 0.1 * np.sin(2 * np.pi * 2 * t))
         
-        wave_data = fundamental + harmonic2 + harmonic3 + high_freq_noise
+        # 모든 성분을 부드럽게 스무딩
+        wave_data = fundamental + harmonic2 + harmonic3 + subtle_texture
+        
+        # 강력한 스무딩으로 완전히 부드럽게
+        if n_s > 20:
+            smooth_kernel = np.ones(15) / 15
+            wave_data = np.convolve(wave_data, smooth_kernel, mode='same')
         
         # 빠른 어택, 긴 서스테인을 위한 envelope
         attack_samples = int(0.001 * self.sample_rate)  # 1ms 빠른 어택
@@ -198,75 +203,89 @@ class HapticRenderer:
         if n_s > fade_out_samples and fade_out_ms > 0:
             wave_data[n_s - fade_out_samples:] *= np.linspace(1, 0, fade_out_samples)
         
-        return (np.clip(wave_data, -1, 1) * 32767).astype(np.int16)
+        return (wave_data * 32767).astype(np.int16)
 
     def _create_metal_waveform(self, hz, ms, amp, fade_out_ms, resonance=1.5):
         """
-        메탈 재질 파형 생성 - 금속성 울림과 복잡한 배음 구조
-        특징: 강한 배음, 금속성 링, 긴 여운, 복잡한 주파수 스펙트럼
+        메탈 재질 파형 생성 - 날카롭고 밝으며 잔향이 있는 소리
+        특징: 강한 기본파, 날카로운 배음, 메탈릭한 잔향
         """
         n_s = int(self.sample_rate * (ms / 1000.0))
         t = np.linspace(0, ms / 1000.0, n_s, False)
         
-        # 기본파
-        fundamental = amp * 0.6 * np.sin(2 * np.pi * hz * t)
+        # 강한 기본파
+        fundamental = amp * 0.7 * np.sin(2 * np.pi * hz * t)
         
-        # 금속 특유의 부드러운 배음 (비조화 성분 줄임)
-        harmonic2 = amp * 0.3 * resonance * 0.6 * np.sin(2 * np.pi * hz * 2.0 * t)  # 정수배로 변경
-        harmonic3 = amp * 0.2 * resonance * 0.6 * np.sin(2 * np.pi * hz * 3.0 * t)  # 정수배로 변경
-        # 4배음 제거로 고주파 성분 줄임
+        # 날카로운 메탈릭 배음들 (더 강하게)
+        harmonic2 = amp * 0.25 * resonance * np.sin(2 * np.pi * hz * 2 * t)
+        harmonic3 = amp * 0.15 * resonance * np.sin(2 * np.pi * hz * 3 * t)
+        harmonic5 = amp * 0.08 * resonance * np.sin(2 * np.pi * hz * 5 * t)
         
-        # 금속 링(ring) 효과 - 더 부드러운 AM 변조
-        ring_freq = hz * 0.05  # 더 낮은 주파수 변조
-        ring_modulation = 1 + 0.15 * np.sin(2 * np.pi * ring_freq * t)  # 변조 깊이 줄임
+        # 메탈 특유의 고주파 울림
+        metal_ring = amp * 0.05 * resonance * np.sin(2 * np.pi * hz * 7 * t) * np.exp(-1.5 * t)
         
-        # 금속성 노이즈 크게 줄임
-        metallic_noise = amp * 0.01 * np.random.normal(0, 1, n_s)
+        # 메탈 충돌 시 특유의 진동 효과
+        metal_vibration = amp * 0.03 * np.sin(2 * np.pi * hz * 1.3 * t) * (1 + 0.3 * np.sin(2 * np.pi * 4 * t))
         
-        wave_data = (fundamental + harmonic2 + harmonic3) * ring_modulation + metallic_noise
+        wave_data = fundamental + harmonic2 + harmonic3 + harmonic5 + metal_ring + metal_vibration
         
-        # 금속 특유의 느린 어택
-        attack_samples = int(0.005 * self.sample_rate)  # 5ms 어택
+        # 최소한의 스무딩 (날카로운 특성 유지)
+        if n_s > 10:
+            smooth_kernel = np.ones(5) / 5  # 매우 적은 스무딩
+            wave_data = np.convolve(wave_data, smooth_kernel, mode='same')
+        
+        # 빠른 어택
+        attack_samples = int(0.001 * self.sample_rate)
         if attack_samples < n_s:
             wave_data[:attack_samples] *= np.linspace(0, 1, attack_samples)
         
-        # 긴 여운을 위한 느린 페이드아웃
-        fade_out_samples = max(int(self.sample_rate * (fade_out_ms / 1000.0)), int(n_s * 0.3))
-        if n_s > fade_out_samples:
+        # 긴 잔향
+        fade_out_samples = int(self.sample_rate * (fade_out_ms / 1000.0))
+        if n_s > fade_out_samples and fade_out_ms > 0:
             wave_data[n_s - fade_out_samples:] *= np.linspace(1, 0, fade_out_samples)
         
         return (np.clip(wave_data, -1, 1) * 32767).astype(np.int16)
 
     def _create_wood_waveform(self, hz, ms, amp, fade_out_ms, warmth=1.0):
         """
-        나무 재질 파형 생성 - 따뜻하고 부드러운 소리
-        특징: 부드러운 배음, 따뜻한 톤, 중간 정도의 어택
+        나무 재질 파형 생성 - 따뜻하고 자연스러운 거칠기가 있는 소리
+        특징: 자연스러운 노이즈, 나무 특유의 거칠기, 따뜻한 배음
         """
         n_s = int(self.sample_rate * (ms / 1000.0))
         t = np.linspace(0, ms / 1000.0, n_s, False)
         
-        # 나무 특유의 부드러운 배음 구조
-        fundamental = amp * 0.8 * np.sin(2 * np.pi * hz * t)
-        harmonic2 = amp * 0.3 * warmth * np.sin(2 * np.pi * hz * 2 * t)
-        harmonic3 = amp * 0.2 * warmth * np.sin(2 * np.pi * hz * 3 * t)
+        # 따뜻한 기본파
+        fundamental = amp * 0.65 * np.sin(2 * np.pi * hz * t)
         
-        # 저주파 성분 강화 (따뜻함)
-        sub_harmonic = amp * 0.1 * warmth * np.sin(2 * np.pi * hz * 0.5 * t)
+        # 따뜻한 배음들 (더 강하게)
+        harmonic2 = amp * 0.15 * warmth * np.sin(2 * np.pi * hz * 2 * t)
+        harmonic3 = amp * 0.08 * warmth * np.sin(2 * np.pi * hz * 3 * t)
         
-        # 나무의 자연스러운 질감을 위한 저주파 노이즈
-        wood_texture = amp * 0.02 * np.random.normal(0, 1, n_s)
-        # 저역 통과 필터 효과
-        for i in range(1, len(wood_texture)):
-            wood_texture[i] = 0.7 * wood_texture[i] + 0.3 * wood_texture[i-1]
+        # 나무 특유의 자연스러운 거칠기 (노이즈 추가)
+        wood_roughness = amp * 0.08 * np.random.normal(0, 1, n_s)
+        # 저주파 필터로 자연스러운 거칠기 만들기
+        for i in range(1, len(wood_roughness)):
+            wood_roughness[i] = 0.6 * wood_roughness[i] + 0.4 * wood_roughness[i-1]
         
-        wave_data = fundamental + harmonic2 + harmonic3 + sub_harmonic + wood_texture
+        # 나무 결 따라 흐르는 질감 (주기적 변조)
+        wood_grain = amp * 0.04 * np.sin(2 * np.pi * hz * 0.3 * t) * (1 + 0.5 * np.sin(2 * np.pi * 0.8 * t))
+        
+        # 나무 타격 시 특유의 펄스 효과
+        wood_pulse = amp * 0.02 * np.sin(2 * np.pi * hz * 8 * t) * np.exp(-3 * t)
+        
+        wave_data = fundamental + harmonic2 + harmonic3 + wood_roughness + wood_grain + wood_pulse
+        
+        # 적당한 스무딩 (너무 부드럽지 않게 - 거칠기 유지)
+        if n_s > 15:
+            smooth_kernel = np.ones(8) / 8  # 더 적은 스무딩
+            wave_data = np.convolve(wave_data, smooth_kernel, mode='same')
         
         # 중간 속도 어택
-        attack_samples = int(0.003 * self.sample_rate)  # 3ms 어택
+        attack_samples = int(0.003 * self.sample_rate)
         if attack_samples < n_s:
             wave_data[:attack_samples] *= np.linspace(0, 1, attack_samples)
         
-        # 자연스러운 페이드아웃
+        # 자연스러운 감쇠
         fade_out_samples = int(self.sample_rate * (fade_out_ms / 1000.0))
         if n_s > fade_out_samples and fade_out_ms > 0:
             wave_data[n_s - fade_out_samples:] *= np.linspace(1, 0, fade_out_samples)
@@ -275,60 +294,71 @@ class HapticRenderer:
 
     def _create_plastic_waveform(self, hz, ms, amp, fade_out_ms, hardness=1.0):
         """
-        플라스틱 재질 파형 생성 - 인공적이고 날카로운 소리
-        특징: 인공적인 톤, 빠른 감쇠, 중간 정도의 배음
+        플라스틱 재질 파형 생성 - 밝고 가벼우며 합성적인 소리
+        특징: 깔끔한 배음, 빠른 감쇠, 인공적 느낌
+        
+        개선: 부드러운 플라스틱 질감
         """
         n_s = int(self.sample_rate * (ms / 1000.0))
         t = np.linspace(0, ms / 1000.0, n_s, False)
         
-        # 플라스틱 특유의 부드러운 인공적인 소리
-        fundamental = amp * 0.8 * np.sin(2 * np.pi * hz * t)
-        harmonic2 = amp * 0.2 * hardness * 0.7 * np.sin(2 * np.pi * hz * 2 * t)
-        # 3배음 제거하고 부드럽게
+        # 깔끔한 기본파
+        fundamental = amp * 0.78 * np.sin(2 * np.pi * hz * t)
         
-        # 플라스틱의 인공적 특성을 위한 약한 사각파 성분
-        square_component = amp * 0.03 * np.sign(np.sin(2 * np.pi * hz * t))  # 사각파 성분 크게 줄임
+        # 플라스틱 특성의 배음들
+        harmonic2 = amp * 0.09 * hardness * 0.3 * np.sin(2 * np.pi * hz * 2 * t)
+        harmonic4 = amp * 0.05 * hardness * 0.2 * np.sin(2 * np.pi * hz * 4 * t)
         
-        wave_data = fundamental + harmonic2 + square_component
+        # 매우 부드러운 플라스틱 질감
+        plastic_texture = amp * 0.0008 * np.sin(2 * np.pi * hz * 6 * t)
         
-        # 빠른 감쇠 (플라스틱의 짧은 여운)
-        decay_envelope = np.exp(-3 * t / (ms / 1000.0))
-        wave_data *= decay_envelope
+        wave_data = fundamental + harmonic2 + harmonic4 + plastic_texture
+        
+        # 스무딩
+        if n_s > 15:
+            smooth_kernel = np.ones(12) / 12
+            wave_data = np.convolve(wave_data, smooth_kernel, mode='same')
         
         # 빠른 어택
-        attack_samples = int(0.001 * self.sample_rate)  # 1ms 어택
+        attack_samples = int(0.001 * self.sample_rate)
         if attack_samples < n_s:
             wave_data[:attack_samples] *= np.linspace(0, 1, attack_samples)
         
-        # 페이드아웃
+        # 빠른 감쇠
         fade_out_samples = int(self.sample_rate * (fade_out_ms / 1000.0))
         if n_s > fade_out_samples and fade_out_ms > 0:
             wave_data[n_s - fade_out_samples:] *= np.linspace(1, 0, fade_out_samples)
         
-        return (np.clip(wave_data, -1, 1) * 32767).astype(np.int16)
+        return (wave_data * 32767).astype(np.int16)
 
     def _create_fabric_waveform(self, hz, ms, amp, fade_out_ms, softness=1.0):
         """
         직물 재질 파형 생성 - 부드럽고 노이즈가 많은 소리
-        특징: 높은 노이즈 성분, 부드러운 질감, 낮은 음량
+        특징: 높은 노이즈 성분, 매우 부드러운 질감, 마찰음
         """
         n_s = int(self.sample_rate * (ms / 1000.0))
         t = np.linspace(0, ms / 1000.0, n_s, False)
         
-        # 기본 톤을 더 강하게, 노이즈는 줄임
-        fundamental = amp * 0.6 * np.sin(2 * np.pi * hz * t)
+        # 매우 부드러운 기본 톤
+        fundamental = amp * 0.4 * np.sin(2 * np.pi * hz * 0.8 * t)  # 더 낮은 주파수
         
-        # 직물 특유의 부드러운 마찰 노이즈 (크게 줄임)
-        fabric_noise = amp * 0.3 * softness * np.random.normal(0, 1, n_s)
+        # 직물 특유의 부드러운 마찰 노이즈 (더 강하게)
+        fabric_noise = amp * 0.4 * softness * np.random.normal(0, 1, n_s)
         
-        # 더 강한 저주파 필터링 (부드러운 느낌)
+        # 매우 강한 저주파 필터링 (부드러운 느낌)
         for i in range(1, len(fabric_noise)):
-            fabric_noise[i] = 0.3 * fabric_noise[i] + 0.7 * fabric_noise[i-1]  # 더 부드럽게
+            fabric_noise[i] = 0.2 * fabric_noise[i] + 0.8 * fabric_noise[i-1]  # 매우 부드럽게
         
-        wave_data = fundamental + fabric_noise
+        # 직물 섬유 특유의 미세한 진동
+        fiber_texture = amp * 0.1 * np.sin(2 * np.pi * hz * 0.1 * t) * (1 + 0.2 * np.random.normal(0, 1, n_s))
+        
+        # 직물 접촉 시 특유의 스위시 사운드
+        swish_effect = amp * 0.08 * np.sin(2 * np.pi * hz * 0.05 * t) * np.exp(-0.5 * t)
+        
+        wave_data = fundamental + fabric_noise + fiber_texture + swish_effect
         
         # 매우 부드러운 어택
-        attack_samples = int(0.01 * self.sample_rate)  # 10ms 어택
+        attack_samples = int(0.015 * self.sample_rate)  # 15ms 어택
         if attack_samples < n_s:
             wave_data[:attack_samples] *= np.linspace(0, 1, attack_samples)
         
@@ -399,6 +429,118 @@ class HapticRenderer:
             wave_data[n_s - fade_out_samples:] *= np.linspace(1, 0, fade_out_samples)
         
         return (np.clip(wave_data, -1, 1) * 32767).astype(np.int16)
+
+    def create_sa_background_sound(self, hz, ms, amp, fade_out_ms=50):
+        """
+        SA 뉴런용 피에조 진동 사운드 생성
+        특징: 80-120Hz 중간 주파수로 피에조 미세변위자극기에서 실제 진동감을 느낄 수 있도록 설계
+        """
+        n_s = int(self.sample_rate * (ms / 1000.0))
+        t = np.linspace(0, ms / 1000.0, n_s, False)
+        
+        # 피에조 진동감을 위한 중간 주파수 (80-120Hz) - 실제 진동이 느껴지는 범위
+        base_hz = max(min(hz * 1.5, 120), 80)  # 80-120Hz로 피에조 진동 최적화
+        
+        # 강한 기본파 (피에조 진동의 핵심)
+        fundamental = amp * 0.7 * np.sin(2 * np.pi * base_hz * t)
+        
+        # 진동감 강화를 위한 서브하모닉
+        sub_harmonic = amp * 0.2 * np.sin(2 * np.pi * base_hz * 0.8 * t)
+        
+        # 피에조 특성을 위한 2차 배음 (진동 질감)
+        second_harmonic = amp * 0.1 * np.sin(2 * np.pi * base_hz * 2 * t)
+        
+        # 피에조 진동기의 자연스러운 진폭 변조 (미세한 변동)
+        vibration_modulation = 1 + 0.03 * np.sin(2 * np.pi * base_hz * 0.05 * t)
+        
+        # 모든 성분을 합성하여 피에조 진동감 구현
+        wave_data = (fundamental + sub_harmonic + second_harmonic) * vibration_modulation
+        
+        # 피에조 특성에 맞는 적당한 스무딩 (너무 부드럽지 않게)
+        if n_s > 20:
+            # 3단계 스무딩으로 적당한 질감 유지
+            for i in range(3):
+                kernel_size = 8 - i * 2  # 8, 6, 4
+                if kernel_size > 2:
+                    smooth_kernel = np.ones(kernel_size) / kernel_size
+                    wave_data = np.convolve(wave_data, smooth_kernel, mode='same')
+        
+        # 피에조 진동기의 빠른 응답 특성 (10ms 어택)
+        attack_samples = int(0.01 * self.sample_rate)
+        if attack_samples < n_s:
+            # 빠른 선형 어택
+            wave_data[:attack_samples] *= np.linspace(0, 1, attack_samples)
+        
+        # 자연스러운 페이드아웃
+        fade_out_samples = int(self.sample_rate * (fade_out_ms / 1000.0))
+        if n_s > fade_out_samples and fade_out_ms > 0:
+            actual_fade_samples = min(fade_out_samples, n_s)
+            decay_curve = np.exp(-1.2 * np.linspace(0, 1, actual_fade_samples))
+            wave_data[n_s - actual_fade_samples:] *= decay_curve
+        
+        # 피에조 진동기의 적당한 포화 특성
+        wave_data = np.tanh(wave_data * 0.9) * 0.95
+        
+        sound_buffer = (wave_data * 32767).astype(np.int16)
+        if sound_buffer.size == 0:
+            return pygame.mixer.Sound(buffer=np.array([0], dtype=np.int16))
+        
+        return pygame.mixer.Sound(buffer=sound_buffer)
+
+    def create_ra_click_sound(self, hz, ms, amp, fade_out_ms=5):
+        """
+        RA 클릭용 맥북 터치패드 스타일 깔끔한 클릭 사운드 생성
+        특징: 18-25Hz 초저주파, 틱틱거림 없는 부드러운 진동감, 매우 짧고 깔끔함
+        """
+        n_s = int(self.sample_rate * (ms / 1000.0))
+        t = np.linspace(0, ms / 1000.0, n_s, False)
+        
+        # 맥북 터치패드 스타일 초저주파 (18-25Hz)
+        click_hz = min(max(hz * 0.3, 18), 25)  # 더 낮은 주파수로
+        
+        # 매우 순수한 사인파 (틱틱거림 방지)
+        fundamental = amp * 0.6 * np.sin(2 * np.pi * click_hz * t)
+        
+        # 깊이감을 위한 극미량의 서브하모닉 (진동감 강화)
+        sub_harmonic = amp * 0.1 * np.sin(2 * np.pi * click_hz * 0.5 * t)
+        
+        # 맥북 터치패드의 특징적인 envelope (빠른 어택, 부드러운 감쇠)
+        # 지수적 감쇠 envelope 적용
+        envelope = np.exp(-8 * t / (ms / 1000.0))  # 빠른 감쇠
+        
+        # 파형 합성 (노이즈 완전 제거)
+        wave_data = (fundamental + sub_harmonic) * envelope
+        
+        # 맥북 스타일의 부드러운 필터링 (틱틱거림 완전 제거)
+        if n_s > 10:
+            # 간단한 이동평균 스무딩으로 안전하게
+            kernel_size = min(8, n_s // 3)
+            if kernel_size > 2:
+                smooth_kernel = np.ones(kernel_size) / kernel_size
+                wave_data = np.convolve(wave_data, smooth_kernel, mode='same')
+        
+        # 맥북 터치패드의 특징적인 순간 어택 (0.1ms)
+        attack_samples = int(0.0001 * self.sample_rate)
+        if attack_samples > 0 and attack_samples < n_s:
+            # 매우 부드러운 어택 곡선
+            attack_curve = np.linspace(0, 1, attack_samples) ** 0.5
+            wave_data[:attack_samples] *= attack_curve
+        
+        # 자연스러운 페이드아웃 (거의 필요없음, envelope이 이미 처리)
+        fade_out_samples = int(self.sample_rate * (fade_out_ms / 1000.0))
+        if n_s > fade_out_samples and fade_out_ms > 0:
+            actual_fade_samples = min(fade_out_samples, n_s)
+            fade_curve = np.exp(-3 * np.linspace(0, 1, actual_fade_samples))
+            wave_data[n_s - actual_fade_samples:] *= fade_curve
+        
+        # 매우 부드러운 클리핑 (맥북 터치패드의 깔끔함)
+        wave_data = np.tanh(wave_data * 0.9) * 0.8
+        
+        sound_buffer = (wave_data * 32767).astype(np.int16)
+        if sound_buffer.size == 0:
+            return pygame.mixer.Sound(buffer=np.array([0], dtype=np.int16))
+        
+        return pygame.mixer.Sound(buffer=sound_buffer)
 
 # 사용 예시 (테스트용)
 if __name__ == '__main__':

@@ -2,7 +2,7 @@
 Spike Encoder - 마우스 입력을 뉴런 스파이크로 변환하는 핵심 모듈 (병렬 최적화 버전)
 SA(Slowly Adapting) 뉴런, RA(Rapidly Adapting) 움직임 뉴런, RA 클릭 뉴런을 병렬로 관리
 '''
-from izhikevich_neuron import IzhikevichNeuronArray
+from .izhikevich_neuron import IzhikevichNeuronArray
 import numpy as np
 
 class SpikeEncoder:

@@ -37,6 +37,12 @@ class AudioPlayer:
             logging.error(f"Unexpected error during AudioPlayer initialization: {e}")
             self.is_initialized = False
 
+        # === 연속 재생을 위한 변수들 추가 ===
+        self.continuous_channels = {}  # 연속 재생 중인 채널 추적
+        self.target_volumes = {}       # 목표 볼륨 저장
+        self.current_volumes = {}      # 현재 볼륨 저장
+        self.volume_smooth_factor = 0.15  # 볼륨 스무딩 계수 (0.1-0.3 범위)
+
     def play_sound(self, sound_object, channel_id, volume=1.0):
         """
         주어진 사운드 객체를 지정된 채널과 볼륨으로 재생합니다.
@@ -84,6 +90,112 @@ class AudioPlayer:
             logging.error(f"Unexpected error during sound playback: {e}")
             return False
 
+    def start_continuous_sound(self, sound_object, channel_id, initial_volume=0.0):
+        """
+        연속적인 루프 사운드를 시작합니다.
+        
+        Parameters:
+        - sound_object: pygame.mixer.Sound 객체 (루프 가능한 사운드)
+        - channel_id: 재생할 채널 ID
+        - initial_volume: 시작 볼륨 (0.0~1.0)
+        
+        Returns:
+        - bool: 시작 성공 여부
+        """
+        if not self.is_initialized:
+            return False
+            
+        try:
+            channel = pygame.mixer.Channel(channel_id)
+            sound_object.set_volume(initial_volume)
+            
+            # 무한 루프로 재생 (-1은 무한 반복)
+            channel.play(sound_object, loops=-1)
+            
+            # 연속 재생 상태 추적
+            self.continuous_channels[channel_id] = {
+                'sound': sound_object,
+                'channel': channel
+            }
+            self.current_volumes[channel_id] = initial_volume
+            self.target_volumes[channel_id] = initial_volume
+            
+            print(f"Started continuous sound on channel {channel_id}")
+            return True
+        except Exception as e:
+            logging.error(f"Failed to start continuous sound: {e}")
+            return False
+
+    def set_continuous_volume(self, channel_id, target_volume):
+        """
+        연속 재생 중인 사운드의 목표 볼륨을 설정합니다.
+        실제 볼륨은 update_volumes()에서 부드럽게 조절됩니다.
+        
+        Parameters:
+        - channel_id: 채널 ID
+        - target_volume: 목표 볼륨 (0.0~1.0)
+        """
+        if channel_id in self.continuous_channels:
+            self.target_volumes[channel_id] = np.clip(target_volume, 0.0, 1.0)
+
+    def update_volumes(self):
+        """
+        모든 연속 재생 채널의 볼륨을 부드럽게 업데이트합니다.
+        매 프레임마다 호출되어야 합니다.
+        """
+        for channel_id in list(self.continuous_channels.keys()):
+            if channel_id in self.target_volumes and channel_id in self.current_volumes:
+                current_vol = self.current_volumes[channel_id]
+                target_vol = self.target_volumes[channel_id]
+                
+                # 부드러운 볼륨 전환 (exponential smoothing)
+                new_vol = current_vol + (target_vol - current_vol) * self.volume_smooth_factor
+                
+                # 매우 작은 차이는 목표값으로 스냅
+                if abs(new_vol - target_vol) < 0.001:
+                    new_vol = target_vol
+                
+                # 볼륨 업데이트
+                if channel_id in self.continuous_channels:
+                    sound_obj = self.continuous_channels[channel_id]['sound']
+                    sound_obj.set_volume(new_vol)
+                    self.current_volumes[channel_id] = new_vol
+
+    def stop_continuous_sound(self, channel_id):
+        """
+        연속 재생 중인 사운드를 중지합니다.
+        
+        Parameters:
+        - channel_id: 중지할 채널 ID
+        """
+        if channel_id in self.continuous_channels:
+            try:
+                channel = self.continuous_channels[channel_id]['channel']
+                channel.stop()
+                
+                # 상태 정리
+                del self.continuous_channels[channel_id]
+                if channel_id in self.current_volumes:
+                    del self.current_volumes[channel_id]
+                if channel_id in self.target_volumes:
+                    del self.target_volumes[channel_id]
+                    
+                print(f"Stopped continuous sound on channel {channel_id}")
+            except Exception as e:
+                logging.error(f"Failed to stop continuous sound: {e}")
+
+    def is_continuous_playing(self, channel_id):
+        """
+        지정된 채널이 연속 재생 중인지 확인합니다.
+        
+        Parameters:
+        - channel_id: 확인할 채널 ID
+        
+        Returns:
+        - bool: 연속 재생 중 여부
+        """
+        return channel_id in self.continuous_channels
+
     def quit(self):
         """
         Pygame mixer를 종료합니다.
@@ -91,6 +203,10 @@ class AudioPlayer:
         """
         try:
             if self.is_initialized:
+                # 모든 연속 사운드 중지
+                for channel_id in list(self.continuous_channels.keys()):
+                    self.stop_continuous_sound(channel_id)
+                
                 pygame.mixer.quit()
                 self.is_initialized = False
                 print("AudioPlayer quit.")
